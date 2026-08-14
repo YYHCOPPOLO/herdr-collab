@@ -29,17 +29,17 @@ scripts/herdr_finish.py   # clerk finish package: execute the handshake, never d
 ## Requirements
 
 - Python 3.10+ (`py` on Windows, `python3` elsewhere) — stdlib only, no deps
-- The `herdr` binary: set `HERDR` / `HERDR_HOME`, put it on `PATH`, or rely on
-  the built-in fallback path
+- The `herdr` binary: set `HERDR` / `HERDR_HOME`, or put it on `PATH`
 - A git work tree per workspace; job files live in `{repo}/.herdr/jobs/`
   (override with `$HERDR_JOBS`)
 
 ## Install
 
-Copy (or symlink) this directory into your agent's skills directory, e.g.
-`~/.grok/skills/herdr-collab/`. Grok loads `SKILL.md` from there. The scripts
-are invoked directly by their installed path — below, `<skill_dir>` stands for
-wherever you installed the skill:
+Copy (or symlink) this directory into your agent's skills directory — wherever
+the agent loads Markdown skills from, e.g. `~/.grok/skills/herdr-collab/`,
+`~/.claude/skills/herdr-collab/`, or a project-level `.agents/skills/herdr-collab/`.
+The scripts are invoked directly by their installed path — below, `<skill_dir>`
+stands for wherever you installed the skill:
 
 ```
 py <skill_dir>/scripts/herdr_peer.py <cmd>        # Windows

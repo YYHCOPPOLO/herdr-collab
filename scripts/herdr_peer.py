@@ -44,7 +44,6 @@ def herdr_bin() -> Path:
         str(Path(os.environ["HERDR_HOME"]) / "bin" / "herdr.exe") if os.environ.get("HERDR_HOME") else None,
         str(Path(os.environ["HERDR_HOME"]) / "herdr") if os.environ.get("HERDR_HOME") else None,
         shutil.which("herdr"),
-        r"D:\ProSoft\herdr\bin\herdr.exe",
     ):
         if candidate and Path(candidate).is_file():
             return Path(candidate)

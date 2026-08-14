@@ -19,7 +19,7 @@ py <skill_dir>/scripts/herdr_peer.py <cmd>        # Windows
 python3 <skill_dir>/scripts/herdr_peer.py <cmd>   # macOS/Linux
 ```
 
-`HERDR` or `HERDR_HOME` overrides the binary. Job files: `{repo}/.herdr/jobs/` (or `$HERDR_JOBS`).
+The herdr binary is resolved from `$HERDR`, `$HERDR_HOME`, or PATH. Job files: `{repo}/.herdr/jobs/` (or `$HERDR_JOBS`).
 
 ## Roles (names are conventions)
 
