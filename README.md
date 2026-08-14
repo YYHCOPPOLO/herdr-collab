@@ -38,32 +38,33 @@ scripts/herdr_finish.py   # clerk finish package: execute the handshake, never d
 
 Copy (or symlink) this directory into your agent's skills directory, e.g.
 `~/.grok/skills/herdr-collab/`. Grok loads `SKILL.md` from there. The scripts
-are invoked directly:
+are invoked directly by their installed path — below, `<skill_dir>` stands for
+wherever you installed the skill:
 
 ```
-py   ~/.grok/skills/herdr-collab/scripts/herdr_peer.py <cmd>   # Windows
-python3 ~/.grok/skills/herdr-collab/scripts/herdr_peer.py <cmd> # macOS/Linux
+py <skill_dir>/scripts/herdr_peer.py <cmd>        # Windows
+python3 <skill_dir>/scripts/herdr_peer.py <cmd>   # macOS/Linux
 ```
 
 ## Quick start
 
 ```
 # who is around
-py ~/.grok/skills/herdr-collab/scripts/herdr_peer.py peers
+py <skill_dir>/scripts/herdr_peer.py peers
 
 # name a pane before talking to it
-py ~/.grok/skills/herdr-collab/scripts/herdr_peer.py name --pane w9:p1 --as sub-grok-2
+py <skill_dir>/scripts/herdr_peer.py name --pane w9:p1 --as sub-grok-2
 
 # push a message to one or more peers
-py ~/.grok/skills/herdr-collab/scripts/herdr_peer.py tell \
+py <skill_dir>/scripts/herdr_peer.py tell \
   --from main-grok --to sub-grok-1 --to git-clerk --message "..."
 
 # dispatch a ticket brief (worker: /new first, then this)
-py ~/.grok/skills/herdr-collab/scripts/herdr_peer.py send \
+py <skill_dir>/scripts/herdr_peer.py send \
   --target sub-grok-1 --prompt-file brief.txt --job 12
 
 # worker -> clerk handoff (clerk runs the finish package)
-py ~/.grok/skills/herdr-collab/scripts/herdr_peer.py handoff \
+py <skill_dir>/scripts/herdr_peer.py handoff \
   --from sub-grok-1 --to git-clerk --job 12
 ```
 

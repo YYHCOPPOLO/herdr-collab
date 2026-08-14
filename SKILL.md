@@ -12,11 +12,11 @@ description: >
 
 Lead from this window. Other herdr panes do the work. **Push messages; never poll.**
 
-Scripts (same directory as this file):
+Scripts live next to this file. Substitute the skill's install directory for `<skill_dir>`:
 
 ```
-py ~/.grok/skills/herdr-collab/scripts/herdr_peer.py <cmd>
-python3 ~/.grok/skills/herdr-collab/scripts/herdr_peer.py <cmd>
+py <skill_dir>/scripts/herdr_peer.py <cmd>        # Windows
+python3 <skill_dir>/scripts/herdr_peer.py <cmd>   # macOS/Linux
 ```
 
 `HERDR` or `HERDR_HOME` overrides the binary. Job files: `{repo}/.herdr/jobs/` (or `$HERDR_JOBS`).
@@ -43,9 +43,9 @@ Any **named** pane can talk to any other. New pane: `herdr_peer.py name --pane w
 ## Talk
 
 ```
-py ~/.grok/skills/herdr-collab/scripts/herdr_peer.py peers
-py ~/.grok/skills/herdr-collab/scripts/herdr_peer.py tell --from main-grok --to sub-grok-1 --to git-clerk --message "..."
-py ~/.grok/skills/herdr-collab/scripts/herdr_peer.py notify --from git-clerk --to sub-grok-1 --job 12 --phase blocked --message "exit 1, see .herdr/jobs/12.run.json"
+py <skill_dir>/scripts/herdr_peer.py peers
+py <skill_dir>/scripts/herdr_peer.py tell --from main-grok --to sub-grok-1 --to git-clerk --message "..."
+py <skill_dir>/scripts/herdr_peer.py notify --from git-clerk --to sub-grok-1 --job 12 --phase blocked --message "exit 1, see .herdr/jobs/12.run.json"
 ```
 
 `--to` repeats. Coding agents get a prompt; bare shells get `.herdr/jobs/inbox-<name>.txt`.
@@ -60,7 +60,7 @@ py ~/.grok/skills/herdr-collab/scripts/herdr_peer.py notify --from git-clerk --t
 Worker last steps: write `.herdr/jobs/<id>.done.json`, then
 
 ```
-py ~/.grok/skills/herdr-collab/scripts/herdr_peer.py handoff --from <worker> --to git-clerk --job <id>
+py <skill_dir>/scripts/herdr_peer.py handoff --from <worker> --to git-clerk --job <id>
 ```
 
 ## Handshake
