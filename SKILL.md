@@ -90,7 +90,7 @@ py <skill_dir>/scripts/herdr_peer.py handoff --from <worker> --to git-clerk --jo
   "on_fail": ["sub-grok-1"],
   "files": ["src/foo.ts"],
   "finish_run": ["npm test"],
-  "timeout_sec": 1800,
+  "timeout_sec": 180,
   "env": {"CI": "1"},
   "commit_message": "feat: ...",
   "issue": 12,
