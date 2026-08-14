@@ -15,7 +15,7 @@ from pathlib import Path
 
 PEER = Path(__file__).resolve().with_name("herdr_peer.py")
 
-DEFAULT_TIMEOUT_SEC = 20  # per finish_run command; long suites must set timeout_sec in the handshake
+DEFAULT_TIMEOUT_SEC = 180  # per finish_run command; long suites set timeout_sec in the handshake
 GIT_PUSH_TIMEOUT_SEC = 120
 
 
@@ -164,6 +164,14 @@ def main() -> int:
         notify_many(clerk, job, "blocked", on_fail, f"handshake status={data.get('status')}; not starting")
         return 1
 
+    # Abort sentinel: someone cancelled this job before the clerk started.
+    abort = jobs_dir() / f"{job}.abort"
+    if abort.exists():
+        abort.unlink()
+        handshake.unlink(missing_ok=True)
+        notify_many(clerk, job, "other", on_pass, f"#{job} 已取消（发现 {abort.name} 哨兵），收工包未执行。")
+        return 3
+
     # Validate the handshake before doing any work; a malformed package bounces immediately.
     extra_env = data.get("env") or {}
     if not isinstance(extra_env, dict):
@@ -273,15 +281,18 @@ def main() -> int:
             ))
             return 1
 
-    # Notify first, then delete job files — evidence survives a failed notify.
+    # Notify first, then archive job files — evidence survives a failed notify.
     notify_many(clerk, job, "git", on_pass, f"commit={commit or 'none'} closed={github_closed}")
 
     for rel in data.get("temp_cleanup") or []:
         path = safe_cleanup(str(rel))
         if path.is_file():
             path.unlink()
-    handshake.unlink(missing_ok=True)
-    (jobs_dir() / f"{job}.run.json").unlink(missing_ok=True)
+    archive = jobs_dir() / "archive"
+    archive.mkdir(exist_ok=True)
+    for artifact in (handshake, jobs_dir() / f"{job}.run.json"):
+        if artifact.exists():
+            artifact.replace(archive / artifact.name)
     return 0
 
 

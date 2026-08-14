@@ -17,13 +17,16 @@ the next peer — no `agent wait` loops, no file-watch monitors.
   the listed files, optionally closes the GitHub issue, and cleans job temps
 - **Bounce failures** back to the worker with command, exit code, and log path —
   the clerk never diagnoses
+- **Cancel** a dispatched job before the clerk starts (`abort --job <id>`)
 
 ## Repository layout
 
 ```
-SKILL.md                  # the skill definition (front matter + playbook)
-scripts/herdr_peer.py     # peer messaging: peers/name/tell/send/run/handoff/notify/status
+SKILL.md                  # the skill definition — the playbook the agent actually follows
+scripts/herdr_peer.py     # peer messaging: peers/name/tell/send/run/handoff/notify/status/abort
 scripts/herdr_finish.py   # clerk finish package: execute the handshake, never diagnose
+tests/test_units.py       # stdlib unittest for the pure/guard logic
+LICENSE                   # MIT
 ```
 
 ## Requirements
@@ -66,65 +69,36 @@ py <skill_dir>/scripts/herdr_peer.py send \
 # worker -> clerk handoff (clerk runs the finish package)
 py <skill_dir>/scripts/herdr_peer.py handoff \
   --from sub-grok-1 --to git-clerk --job 12
+
+# cancel a dispatched job before the clerk starts
+py <skill_dir>/scripts/herdr_peer.py abort --job 12
 ```
 
-Coding agents receive a prompt; bare shells get `.herdr/jobs/inbox-<name>.txt`.
+Coding agents receive a prompt; bare shells get `.herdr/jobs/inbox-<name>.txt`
+(appended, timestamped).
 
-## Roles (names are conventions)
+## How a ticket flows
 
-| Role   | Typical name | Does | Does not |
-| ------ | ------------ | ---- | -------- |
-| Lead   | `main-grok`  | Brief, `/new`, verify success notifies | Run project tests, git, debug clerk failures |
-| Worker | `sub-grok-N` | Edit files; run short local commands | git / close issues / wipe jobs; wait on clerk |
-| Clerk  | `git-clerk`  | Run `finish_run`, commit listed files, optional issue close, delete listed job temps | Read tests, edit product code, invent steps |
+1. The lead names panes, writes a self-contained brief, sends `/new` then the brief.
+2. The worker does the work, writes the handshake `.herdr/jobs/<id>.done.json`,
+   and runs `handoff`.
+3. The clerk executes the finish package: `finish_run` (per-command timeout,
+   default 180s — long suites set `timeout_sec`), commits `files`, optionally
+   comments + closes the GitHub issue, cleans `temp_cleanup`. On any failure it
+   bounces the log (`.herdr/jobs/<id>.run.json`) to the worker and stops — it
+   never diagnoses.
+4. Success notifies the lead; the executed handshake and run log move to
+   `.herdr/jobs/archive/`. Reruns are idempotent — an already-committed tree
+   skips `git commit`, so retrying after a GitHub failure is safe.
 
-## The handshake
+## Tests
 
-The worker's last step writes `.herdr/jobs/<id>.done.json`:
-
-```json
-{
-  "job": "12",
-  "status": "pass",
-  "from": "sub-grok-1",
-  "lead": "main-grok",
-  "clerk": "git-clerk",
-  "on_pass": ["main-grok"],
-  "on_fail": ["sub-grok-1"],
-  "files": ["src/foo.ts"],
-  "finish_run": ["npm test"],
-  "timeout_sec": 1800,
-  "env": {"CI": "1"},
-  "commit_message": "feat: ...",
-  "issue": 12,
-  "issue_comment": "",
-  "push": false,
-  "temp_cleanup": [".herdr/jobs/brief-12.txt"]
-}
+```
+py -m unittest discover -s tests      # Windows
+python3 -m unittest discover -s tests # macOS/Linux
 ```
 
-Defaults: `on_fail=[from]`, `on_pass=[lead]`, `timeout_sec=20` per
-`finish_run` command — long suites must set it explicitly. String commands split with POSIX quoting rules
-(`shlex`); use the array form for paths or tricky args. `env` is merged over
-the clerk's environment for `finish_run` only. The clerk runs
-`herdr_finish.py --job <id>`, which executes `finish_run` (each command with
-a timeout), commits `files` with `commit_message`, posts `issue_comment` +
-closes `issue` on GitHub when set, notifies `on_pass`, then deletes
-`temp_cleanup` (must stay under `.herdr/` or `temp/`) and the job files. On
-the first failing command — or on a GitHub failure after the commit — it
-notifies `on_fail` with the log at `.herdr/jobs/<id>.run.json`. Reruns are
-idempotent: an already-committed tree skips `git commit`.
+## Full playbook
 
-## Hard rules
-
-1. **Push, don't pull.** No wait loops, no file-watch monitors.
-2. **Name before talk.** `peers` then `tell` / `notify` / `handoff`.
-3. **`/new` then the brief.** Never paste `/new` and the ticket in one prompt.
-4. **Short commands stay with the worker; once-per-ticket commands go in
-   `finish_run`.**
-5. **The clerk is an executor.** On failure it bounces the log to the worker
-   and stops — it never diagnoses.
-6. **The lead only wakes on `on_pass` or a human decision.** Never re-run a
-   succeeded finish package.
-
-See [SKILL.md](SKILL.md) for the full playbook the agent actually follows.
+The roles table, the handshake schema, and the hard rules live in
+[SKILL.md](SKILL.md) — that is the file the agent follows.

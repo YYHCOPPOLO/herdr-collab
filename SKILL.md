@@ -48,7 +48,7 @@ py <skill_dir>/scripts/herdr_peer.py tell --from main-grok --to sub-grok-1 --to 
 py <skill_dir>/scripts/herdr_peer.py notify --from git-clerk --to sub-grok-1 --job 12 --phase blocked --message "exit 1, see .herdr/jobs/12.run.json"
 ```
 
-`--to` repeats. Coding agents get a prompt; bare shells get `.herdr/jobs/inbox-<name>.txt`.
+`--to` repeats. Coding agents get a prompt; bare shells get `.herdr/jobs/inbox-<name>.txt` (appended, timestamped — earlier messages are kept).
 
 ## Dispatch a ticket
 
@@ -56,6 +56,18 @@ py <skill_dir>/scripts/herdr_peer.py notify --from git-clerk --to sub-grok-1 --j
 2. Write a **self-contained** brief (worker has no lead history): scope, do-not, spec/issue, files they may touch, handshake path, `handoff` command.
 3. `tell`/`send` only `/new` to the worker. When idle, `send --target <worker> --prompt-file <brief> --job <id>`.
 4. Stop. Do not watch them.
+
+Brief skeleton (copy and fill):
+
+```
+# Job <id>: <one-line goal>
+Scope: <files/dirs the worker may touch>
+Do not: <out-of-scope actions>
+Spec/issue: <link or #id>
+Done when: <observable acceptance>
+finish_run: [<once-per-ticket commands>]
+commit_message: <message>
+```
 
 Worker last steps: write `.herdr/jobs/<id>.done.json`, then
 
@@ -88,7 +100,11 @@ py <skill_dir>/scripts/herdr_peer.py handoff --from <worker> --to git-clerk --jo
 }
 ```
 
-Defaults: `on_fail=[from]`, `on_pass=[lead]`, `timeout_sec=20` per `finish_run` command — long suites must set it explicitly. String commands split with POSIX quoting rules (`shlex`); use the array form for paths or tricky args. `env` is merged over the clerk's environment for `finish_run` only. Reruns are idempotent: an already-committed tree skips `git commit`, so retrying after a GitHub failure is safe. Clerk runs `herdr_finish.py` (same `scripts/`). `temp_cleanup` must stay under the repo (prefer `.herdr/` or project `temp/`).
+Defaults: `on_fail=[from]`, `on_pass=[lead]`, `timeout_sec=180` per `finish_run` command — long suites must set it explicitly. String commands split with POSIX quoting rules (`shlex`); use the array form for paths or tricky args. `env` is merged over the clerk's environment for `finish_run` only. Reruns are idempotent: an already-committed tree skips `git commit`, so retrying after a GitHub failure is safe. Clerk runs `herdr_finish.py` (same `scripts/`). `temp_cleanup` must stay under the repo (prefer `.herdr/` or project `temp/`). Executed handshakes and run logs move to `.herdr/jobs/archive/`.
+
+## Cancel a job
+
+`herdr_peer.py abort --job <id>` writes the `.herdr/jobs/<id>.abort` sentinel. The clerk checks it before starting: if present, nothing runs, the handshake is dropped, and `on_pass` gets an `other` notify.
 
 ## On a notify to this lead
 

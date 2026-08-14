@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -105,7 +106,9 @@ def deliver(target: str, text: str) -> dict:
     if is_coding_agent(target):
         return herdr_json(["agent", "prompt", target, text])
     inbox = jobs_dir() / f"inbox-{target}.txt"
-    inbox.write_text(text, encoding="utf-8")
+    stamp = datetime.now().isoformat(timespec="seconds")
+    with inbox.open("a", encoding="utf-8") as fh:
+        fh.write(f"=== {stamp} ===\n{text}\n\n")
     return {"type": "inbox", "path": str(inbox), "kind": occupant_kind(target)}
 
 
@@ -272,6 +275,16 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_abort(args: argparse.Namespace) -> int:
+    sentinel = jobs_dir() / f"{args.job}.abort"
+    sentinel.write_text("abort\n", encoding="utf-8")
+    print(json.dumps({
+        "job": args.job, "abort": str(sentinel),
+        "note": "clerk checks this before starting; aborted jobs notify on_pass and do not run",
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="herdr peer messaging")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -311,11 +324,13 @@ def main() -> int:
     status = sub.add_parser("status")
     status.add_argument("--target", required=True)
     status.add_argument("--job")
+    abort = sub.add_parser("abort")
+    abort.add_argument("--job", required=True)
     args = parser.parse_args()
     fn = {
         "list": cmd_list, "peers": cmd_peers, "name": cmd_name, "tell": cmd_tell,
         "send": cmd_send, "run": cmd_run, "handoff": cmd_handoff,
-        "notify": cmd_notify, "status": cmd_status,
+        "notify": cmd_notify, "status": cmd_status, "abort": cmd_abort,
     }[args.cmd]
     if args.cmd == "run":
         if args.command and args.command[0] == "--":
