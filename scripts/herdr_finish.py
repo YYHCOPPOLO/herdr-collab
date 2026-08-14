@@ -6,12 +6,17 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
 PEER = Path(__file__).resolve().with_name("herdr_peer.py")
+
+DEFAULT_TIMEOUT_SEC = 20  # per finish_run command; long suites must set timeout_sec in the handshake
+GIT_PUSH_TIMEOUT_SEC = 120
 
 
 def repo_root() -> Path:
@@ -29,10 +34,16 @@ def jobs_dir() -> Path:
     return path
 
 
-def run(args: list[str]) -> subprocess.CompletedProcess[str]:
+def run(
+    args: list[str],
+    *,
+    env: dict | None = None,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args, cwd=str(repo_root()),
         capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=env, timeout=timeout,
     )
 
 
@@ -86,6 +97,7 @@ def gh_api(method: str, path: str, body=None):
             return json.load(urllib.request.urlopen(req, timeout=20))
         except Exception as exc:  # noqa: BLE001
             last = exc
+            time.sleep(1.5)
     raise last
 
 
@@ -99,6 +111,34 @@ def safe_cleanup(rel: str) -> Path:
     if herdr not in path.parents and tmp not in path.parents and path not in (herdr, tmp):
         raise SystemExit(f"temp_cleanup must stay under .herdr/ or temp/: {rel}")
     return path
+
+
+def parse_command(command) -> list[str]:
+    """A finish_run entry -> argv. Strings are split with POSIX quoting rules
+    (shlex); use the array form for paths or arguments with special characters."""
+    if isinstance(command, list):
+        return [str(part) for part in command]
+    return shlex.split(str(command))
+
+
+def finish_env(extra: dict) -> dict | None:
+    if not extra:
+        return None
+    env = os.environ.copy()
+    env.update({str(k): str(v) for k, v in extra.items()})
+    return env
+
+
+def write_run_log(job: str, run_log: list, proc=None, note: str = "") -> Path:
+    payload = {"job": job, "ok": False, "runs": run_log}
+    if note:
+        payload["note"] = note
+    if proc is not None:
+        payload["stdout"] = (proc.stdout or "")[-4000:]
+        payload["stderr"] = (proc.stderr or "")[-4000:]
+    log = jobs_dir() / f"{job}.run.json"
+    log.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return log
 
 
 def main() -> int:
@@ -124,18 +164,55 @@ def main() -> int:
         notify_many(clerk, job, "blocked", on_fail, f"handshake status={data.get('status')}; not starting")
         return 1
 
+    # Validate the handshake before doing any work; a malformed package bounces immediately.
+    extra_env = data.get("env") or {}
+    if not isinstance(extra_env, dict):
+        notify_many(clerk, job, "blocked", on_fail, "handshake env 必须是对象（{\"NAME\": \"value\"}）")
+        return 2
+    try:
+        timeout_sec = float(data.get("timeout_sec", DEFAULT_TIMEOUT_SEC))
+        if timeout_sec <= 0:
+            raise ValueError("non-positive")
+    except (TypeError, ValueError):
+        notify_many(clerk, job, "blocked", on_fail, f"handshake timeout_sec 非法：{data.get('timeout_sec')!r}")
+        return 2
+    for rel in data.get("temp_cleanup") or []:
+        try:
+            safe_cleanup(str(rel))
+        except SystemExit as exc:
+            notify_many(clerk, job, "blocked", on_fail, f"temp_cleanup 路径越界：{exc}")
+            return 2
+
     run_log = []
     for command in data.get("finish_run") or []:
-        argv = command if isinstance(command, list) else command.split()
-        proc = run(argv)
+        try:
+            argv = parse_command(command)
+        except ValueError as exc:
+            log = write_run_log(job, run_log, note=f"unparseable finish_run {command!r}: {exc}")
+            notify_many(clerk, job, "blocked", on_fail, (
+                f"命令解析失败：{command!r}（{exc}）。字符串按 POSIX 引号规则拆分；"
+                f"含路径/特殊参数请改用数组形式。日志：{log.as_posix()}。"
+            ))
+            return 2
+        if not argv:
+            continue
+        try:
+            proc = run(argv, env=finish_env(extra_env), timeout=timeout_sec)
+        except FileNotFoundError:
+            log = write_run_log(job, run_log, note=f"command not found: {argv[0]}")
+            notify_many(clerk, job, "blocked", on_fail, f"找不到命令：{argv[0]}。日志：{log.as_posix()}。")
+            return 127
+        except subprocess.TimeoutExpired:
+            run_log.append({"command": command, "exit": 124, "timeout_sec": timeout_sec})
+            log = write_run_log(job, run_log, note=f"timeout after {timeout_sec}s")
+            notify_many(clerk, job, "blocked", on_fail, (
+                f"命令超时（{timeout_sec:.0f}s）：{command}。日志：{log.as_posix()}。"
+                "需要更长时限就在回执里调大 timeout_sec。"
+            ))
+            return 124
         run_log.append({"command": command, "exit": proc.returncode})
         if proc.returncode != 0:
-            log = jobs_dir() / f"{job}.run.json"
-            log.write_text(json.dumps({
-                "job": job, "ok": False, "runs": run_log,
-                "stdout": (proc.stdout or "")[-4000:],
-                "stderr": (proc.stderr or "")[-4000:],
-            }, ensure_ascii=False, indent=2), encoding="utf-8")
+            log = write_run_log(job, run_log, proc)
             notify_many(clerk, job, "blocked", on_fail, (
                 f"执行失败，原样退回（clerk 不查、不改代码）。"
                 f"命令：{command} exit={proc.returncode}。日志：{log.as_posix()}。"
@@ -155,13 +232,26 @@ def main() -> int:
         if add.returncode != 0:
             notify_many(clerk, job, "blocked", on_fail, add.stderr)
             return add.returncode
-        committed = run(["git", "commit", "-m", str(data["commit_message"])])
-        if committed.returncode != 0:
-            notify_many(clerk, job, "blocked", on_fail, committed.stdout + committed.stderr)
-            return committed.returncode
-        commit = run(["git", "rev-parse", "--short", "HEAD"]).stdout.strip()
+        staged = run(["git", "diff", "--cached", "--quiet"])
+        if staged.returncode == 0:
+            # Nothing staged: either a rerun after a partial success or the files
+            # did not change. Skip the commit instead of failing on "nothing to commit".
+            commit = run(["git", "rev-parse", "--short", "HEAD"]).stdout.strip()
+        elif staged.returncode == 1:
+            committed = run(["git", "commit", "-m", str(data["commit_message"])])
+            if committed.returncode != 0:
+                notify_many(clerk, job, "blocked", on_fail, committed.stdout + committed.stderr)
+                return committed.returncode
+            commit = run(["git", "rev-parse", "--short", "HEAD"]).stdout.strip()
+        else:
+            notify_many(clerk, job, "blocked", on_fail, f"git diff --cached exit={staged.returncode}: {staged.stderr}")
+            return staged.returncode
         if data.get("push"):
-            pushed = run(["git", "push"])
+            try:
+                pushed = run(["git", "push"], timeout=GIT_PUSH_TIMEOUT_SEC)
+            except subprocess.TimeoutExpired:
+                notify_many(clerk, job, "blocked", on_fail, f"git push 超时（{GIT_PUSH_TIMEOUT_SEC}s）")
+                return 124
             if pushed.returncode != 0:
                 notify_many(clerk, job, "blocked", on_fail, pushed.stderr)
                 return pushed.returncode
@@ -171,9 +261,20 @@ def main() -> int:
     issue = data.get("issue") or (job if str(job).isdigit() else None)
     repo = github_repo()
     if comment and issue and repo:
-        gh_api("POST", f"/repos/{repo}/issues/{issue}/comments", {"body": comment})
-        gh_api("PATCH", f"/repos/{repo}/issues/{issue}", {"state": "closed"})
-        github_closed = True
+        try:
+            gh_api("POST", f"/repos/{repo}/issues/{issue}/comments", {"body": comment})
+            gh_api("PATCH", f"/repos/{repo}/issues/{issue}", {"state": "closed"})
+            github_closed = True
+        except Exception as exc:  # noqa: BLE001
+            log = write_run_log(job, run_log, note=f"github comment/close failed: {exc}")
+            notify_many(clerk, job, "blocked", on_fail, (
+                f"commit 已完成（{commit or '无改动'}），但 GitHub 评论/关票失败：{exc}。"
+                f"网络恢复后更新回执再 handoff 即可（重跑幂等，不会重复 commit）。日志：{log.as_posix()}。"
+            ))
+            return 1
+
+    # Notify first, then delete job files — evidence survives a failed notify.
+    notify_many(clerk, job, "git", on_pass, f"commit={commit or 'none'} closed={github_closed}")
 
     for rel in data.get("temp_cleanup") or []:
         path = safe_cleanup(str(rel))
@@ -181,8 +282,6 @@ def main() -> int:
             path.unlink()
     handshake.unlink(missing_ok=True)
     (jobs_dir() / f"{job}.run.json").unlink(missing_ok=True)
-
-    notify_many(clerk, job, "git", on_pass, f"commit={commit or 'none'} closed={github_closed}")
     return 0
 
 

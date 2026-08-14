@@ -93,6 +93,8 @@ The worker's last step writes `.herdr/jobs/<id>.done.json`:
   "on_fail": ["sub-grok-1"],
   "files": ["src/foo.ts"],
   "finish_run": ["npm test"],
+  "timeout_sec": 1800,
+  "env": {"CI": "1"},
   "commit_message": "feat: ...",
   "issue": 12,
   "issue_comment": "",
@@ -101,12 +103,17 @@ The worker's last step writes `.herdr/jobs/<id>.done.json`:
 }
 ```
 
-Defaults: `on_fail=[from]`, `on_pass=[lead]`. The clerk runs
-`herdr_finish.py --job <id>`, which executes `finish_run`, commits `files`
-with `commit_message`, posts `issue_comment` + closes `issue` on GitHub when
-set, deletes `temp_cleanup` (must stay under `.herdr/` or `temp/`), then
-notifies `on_pass` — or `on_fail` on the first failing command, with the log
-at `.herdr/jobs/<id>.run.json`.
+Defaults: `on_fail=[from]`, `on_pass=[lead]`, `timeout_sec=20` per
+`finish_run` command — long suites must set it explicitly. String commands split with POSIX quoting rules
+(`shlex`); use the array form for paths or tricky args. `env` is merged over
+the clerk's environment for `finish_run` only. The clerk runs
+`herdr_finish.py --job <id>`, which executes `finish_run` (each command with
+a timeout), commits `files` with `commit_message`, posts `issue_comment` +
+closes `issue` on GitHub when set, notifies `on_pass`, then deletes
+`temp_cleanup` (must stay under `.herdr/` or `temp/`) and the job files. On
+the first failing command — or on a GitHub failure after the commit — it
+notifies `on_fail` with the log at `.herdr/jobs/<id>.run.json`. Reruns are
+idempotent: an already-committed tree skips `git commit`.
 
 ## Hard rules
 

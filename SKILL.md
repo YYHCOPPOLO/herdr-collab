@@ -78,6 +78,8 @@ py <skill_dir>/scripts/herdr_peer.py handoff --from <worker> --to git-clerk --jo
   "on_fail": ["sub-grok-1"],
   "files": ["src/foo.ts"],
   "finish_run": ["npm test"],
+  "timeout_sec": 1800,
+  "env": {"CI": "1"},
   "commit_message": "feat: ...",
   "issue": 12,
   "issue_comment": "",
@@ -86,7 +88,7 @@ py <skill_dir>/scripts/herdr_peer.py handoff --from <worker> --to git-clerk --jo
 }
 ```
 
-Defaults: `on_fail=[from]`, `on_pass=[lead]`. Clerk runs `herdr_finish.py` (same `scripts/`). `temp_cleanup` must stay under the repo (prefer `.herdr/` or project `temp/`).
+Defaults: `on_fail=[from]`, `on_pass=[lead]`, `timeout_sec=20` per `finish_run` command — long suites must set it explicitly. String commands split with POSIX quoting rules (`shlex`); use the array form for paths or tricky args. `env` is merged over the clerk's environment for `finish_run` only. Reruns are idempotent: an already-committed tree skips `git commit`, so retrying after a GitHub failure is safe. Clerk runs `herdr_finish.py` (same `scripts/`). `temp_cleanup` must stay under the repo (prefer `.herdr/` or project `temp/`).
 
 ## On a notify to this lead
 
