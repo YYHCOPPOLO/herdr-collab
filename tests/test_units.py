@@ -150,5 +150,49 @@ class InitTest(unittest.TestCase):
         hp.cmd_init(self.ns(force=True))
 
 
+class ParseEntryTest(unittest.TestCase):
+    def test_string_form(self):
+        argv, soft, timeout, env = hf.parse_entry('py -c "print(1)"')
+        self.assertEqual(argv, ["py", "-c", "print(1)"])
+        self.assertFalse(soft)
+        self.assertIsNone(timeout)
+        self.assertIsNone(env)
+
+    def test_array_form(self):
+        argv, soft, timeout, env = hf.parse_entry(["py", "a b.py"])
+        self.assertEqual(argv, ["py", "a b.py"])
+        self.assertFalse(soft)
+
+    def test_object_form_full(self):
+        argv, soft, timeout, env = hf.parse_entry(
+            {"cmd": "npm test", "soft": True, "timeout_sec": 300, "env": {"A": 1}})
+        self.assertEqual(argv, ["npm", "test"])
+        self.assertTrue(soft)
+        self.assertEqual(timeout, 300.0)
+        self.assertEqual(env, {"A": "1"})
+
+    def test_object_requires_cmd(self):
+        with self.assertRaises(ValueError):
+            hf.parse_entry({"soft": True})
+
+    def test_object_bad_timeout(self):
+        with self.assertRaises(ValueError):
+            hf.parse_entry({"cmd": "x", "timeout_sec": -1})
+
+    def test_empty_command(self):
+        with self.assertRaises(ValueError):
+            hf.parse_entry("")
+
+    def test_validate_accepts_object_form(self):
+        data = {"job": "t", "status": "pass", "from": "w",
+                "finish_run": [{"cmd": "npm test", "soft": True}]}
+        self.assertEqual(hf.validate_handshake(data, "t"), [])
+
+    def test_validate_rejects_bad_object(self):
+        data = {"job": "t", "status": "pass", "from": "w",
+                "finish_run": [{"soft": True}]}
+        self.assertTrue(hf.validate_handshake(data, "t"))
+
+
 if __name__ == "__main__":
     unittest.main()

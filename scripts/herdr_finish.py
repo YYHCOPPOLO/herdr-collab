@@ -114,11 +114,41 @@ def safe_cleanup(rel: str) -> Path:
 
 
 def parse_command(command) -> list[str]:
-    """A finish_run entry -> argv. Strings are split with POSIX quoting rules
-    (shlex); use the array form for paths or arguments with special characters."""
+    """A command in string form -> argv, split with POSIX quoting rules (shlex).
+    Use the array form for paths or arguments with special characters."""
     if isinstance(command, list):
         return [str(part) for part in command]
     return shlex.split(str(command))
+
+
+def parse_entry(entry) -> tuple[list[str], bool, float | None, dict | None]:
+    """One finish_run entry -> (argv, soft, timeout_override, env_override).
+
+    Forms: "string" (POSIX quoting), ["argv", ...], or an object
+    {"cmd": <string|array>, "soft": bool, "timeout_sec": n, "env": {...}}
+    with all three object keys optional.
+    """
+    soft = False
+    timeout = None
+    env = None
+    command = entry
+    if isinstance(entry, dict):
+        if "cmd" not in entry:
+            raise ValueError("对象形态缺 cmd")
+        command = entry["cmd"]
+        soft = bool(entry.get("soft", False))
+        if entry.get("timeout_sec") is not None:
+            timeout = float(entry["timeout_sec"])
+            if timeout <= 0:
+                raise ValueError(f"timeout_sec 必须为正：{entry['timeout_sec']!r}")
+        if entry.get("env") is not None:
+            if not isinstance(entry["env"], dict):
+                raise ValueError("条目 env 必须是对象")
+            env = {str(k): str(v) for k, v in entry["env"].items()}
+    argv = parse_command(command)
+    if not argv:
+        raise ValueError("空命令")
+    return argv, soft, timeout, env
 
 
 def finish_env(extra: dict) -> dict | None:
@@ -166,9 +196,9 @@ def validate_handshake(data: dict, job: str) -> list[str]:
             problems.append(str(exc))
     for command in data.get("finish_run") or []:
         try:
-            parse_command(command)
-        except ValueError as exc:
-            problems.append(f"finish_run 命令解析失败 {command!r}: {exc}")
+            parse_entry(command)
+        except (TypeError, ValueError) as exc:
+            problems.append(f"finish_run 条目非法 {command!r}: {exc}")
     return problems
 
 
@@ -213,32 +243,46 @@ def main() -> int:
     run_log = []
     for command in data.get("finish_run") or []:
         try:
-            argv = parse_command(command)
-        except ValueError as exc:
+            argv, soft, cmd_timeout, cmd_env = parse_entry(command)
+        except (TypeError, ValueError) as exc:
             log = write_run_log(job, run_log, note=f"unparseable finish_run {command!r}: {exc}")
             notify_many(clerk, job, "blocked", on_fail, (
                 f"命令解析失败：{command!r}（{exc}）。字符串按 POSIX 引号规则拆分；"
-                f"含路径/特殊参数请改用数组形式。日志：{log.as_posix()}。"
+                f"含路径/特殊参数请改用数组或对象形式。日志：{log.as_posix()}。"
             ))
             return 2
-        if not argv:
-            continue
+        effective_timeout = cmd_timeout if cmd_timeout is not None else timeout_sec
+        env = finish_env(extra_env)
+        if cmd_env:
+            if env is None:
+                env = os.environ.copy()
+            env.update(cmd_env)
         try:
-            proc = run(argv, env=finish_env(extra_env), timeout=timeout_sec)
+            proc = run(argv, env=env, timeout=effective_timeout)
         except FileNotFoundError:
             log = write_run_log(job, run_log, note=f"command not found: {argv[0]}")
             notify_many(clerk, job, "blocked", on_fail, f"找不到命令：{argv[0]}。日志：{log.as_posix()}。")
             return 127
         except subprocess.TimeoutExpired:
-            run_log.append({"command": command, "exit": 124, "timeout_sec": timeout_sec})
-            log = write_run_log(job, run_log, note=f"timeout after {timeout_sec}s")
+            entry_log = {"command": command, "exit": 124, "timeout_sec": effective_timeout}
+            if soft:
+                entry_log["soft"] = True
+                run_log.append(entry_log)
+                continue
+            run_log.append(entry_log)
+            log = write_run_log(job, run_log, note=f"timeout after {effective_timeout}s")
             notify_many(clerk, job, "blocked", on_fail, (
-                f"命令超时（{timeout_sec:.0f}s）：{command}。日志：{log.as_posix()}。"
+                f"命令超时（{effective_timeout:.0f}s）：{command}。日志：{log.as_posix()}。"
                 "需要更长时限就在回执里调大 timeout_sec。"
             ))
             return 124
-        run_log.append({"command": command, "exit": proc.returncode})
+        entry_log = {"command": command, "exit": proc.returncode}
+        if soft:
+            entry_log["soft"] = True
+        run_log.append(entry_log)
         if proc.returncode != 0:
+            if soft:
+                continue
             log = write_run_log(job, run_log, proc)
             notify_many(clerk, job, "blocked", on_fail, (
                 f"执行失败，原样退回（clerk 不查、不改代码）。"
@@ -247,8 +291,10 @@ def main() -> int:
             ))
             return proc.returncode
 
+    soft_fails = sum(1 for r in run_log if r.get("soft"))
     (jobs_dir() / f"{job}.run.json").write_text(
-        json.dumps({"job": job, "ok": True, "runs": run_log}, ensure_ascii=False, indent=2),
+        json.dumps({"job": job, "ok": True, "runs": run_log, "soft_failures": soft_fails},
+                   ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
@@ -301,7 +347,10 @@ def main() -> int:
             return 1
 
     # Notify first, then archive job files — evidence survives a failed notify.
-    notify_many(clerk, job, "git", on_pass, f"commit={commit or 'none'} closed={github_closed}")
+    msg = f"commit={commit or 'none'} closed={github_closed}"
+    if soft_fails:
+        msg += f" soft失败={soft_fails}"
+    notify_many(clerk, job, "git", on_pass, msg)
 
     for rel in data.get("temp_cleanup") or []:
         path = safe_cleanup(str(rel))
