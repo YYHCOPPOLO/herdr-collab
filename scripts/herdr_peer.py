@@ -12,10 +12,6 @@ from datetime import datetime
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
-CODING_KINDS = {
-    "grok", "kimi", "claude", "codex", "cursor", "gemini",
-    "copilot", "droid", "amp", "opencode", "pi", "omp",
-}
 DEFAULT_LEAD = "main-grok"
 DEFAULT_CLERK = "git-clerk"
 
@@ -86,13 +82,18 @@ def agent_record(target: str) -> dict:
     return agent or {}
 
 
+def record_is_coding(record: dict) -> bool:
+    # herdr fills the agent field when it detects a coding agent in the pane;
+    # bare shells have no agent field at all.
+    return bool(record.get("agent"))
+
+
 def occupant_kind(target: str) -> str:
     return str(agent_record(target).get("agent") or "").lower()
 
 
 def is_coding_agent(target: str) -> bool:
-    kind = occupant_kind(target)
-    return kind in CODING_KINDS or "grok" in kind
+    return record_is_coding(agent_record(target))
 
 
 def pane_id_of(target: str) -> str:
@@ -238,9 +239,6 @@ def cmd_handoff(args: argparse.Namespace) -> int:
 
 
 def cmd_notify(args: argparse.Namespace) -> int:
-    if args.phase == "done" and args.to == [DEFAULT_CLERK]:
-        args.to = DEFAULT_CLERK
-        return cmd_handoff(args)
     lines = [f"【通知】{args.source}"]
     if args.job:
         lines[0] += f" · #{args.job}"

@@ -71,5 +71,16 @@ class DefaultsTest(unittest.TestCase):
         self.assertEqual(hf.DEFAULT_TIMEOUT_SEC, 180)
 
 
+class RecordIsCodingTest(unittest.TestCase):
+    def test_agent_field_present(self):
+        self.assertTrue(hp.record_is_coding({"agent": "kimi"}))
+        self.assertTrue(hp.record_is_coding({"agent": {"kind": "grok"}}))
+
+    def test_bare_shell(self):
+        self.assertFalse(hp.record_is_coding({}))
+        self.assertFalse(hp.record_is_coding({"agent": None}))
+        self.assertFalse(hp.record_is_coding({"agent": ""}))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -151,7 +151,8 @@ def main() -> int:
     handshake = jobs_dir() / f"{job}.done.json"
     clerk = args.clerk
     if not handshake.is_file():
-        notify_many(clerk, job, "blocked", ["main-grok"], f"missing {handshake}")
+        target = [args.worker] if args.worker else ["main-grok"]
+        notify_many(clerk, job, "blocked", target, f"missing {handshake}")
         return 1
     data = json.loads(handshake.read_text(encoding="utf-8"))
     worker = data.get("from") or args.worker or "sub-grok-1"
