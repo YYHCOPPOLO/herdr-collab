@@ -141,6 +141,37 @@ def write_run_log(job: str, run_log: list, proc=None, note: str = "") -> Path:
     return log
 
 
+def validate_handshake(data: dict, job: str) -> list[str]:
+    """Pre-flight checks shared by the clerk (herdr_finish) and handoff
+    (herdr_peer). Returns a list of problems; empty means runnable."""
+    problems = []
+    if str(data.get("job") or "") != str(job):
+        problems.append(f"job 字段 {data.get('job')!r} 与文件名 {job} 不一致")
+    if not str(data.get("from") or "").strip():
+        problems.append("from 为空（谁干的活）")
+    if str(data.get("status") or "").lower() not in ("pass", "ok", ""):
+        problems.append(f"status={data.get('status')!r} 不是 pass/ok")
+    if not isinstance(data.get("env") or {}, dict):
+        problems.append('env 必须是对象（{"NAME": "value"}）')
+    try:
+        timeout = float(data.get("timeout_sec", DEFAULT_TIMEOUT_SEC))
+        if timeout <= 0:
+            raise ValueError("non-positive")
+    except (TypeError, ValueError):
+        problems.append(f"timeout_sec 非法：{data.get('timeout_sec')!r}")
+    for rel in data.get("temp_cleanup") or []:
+        try:
+            safe_cleanup(str(rel))
+        except SystemExit as exc:
+            problems.append(str(exc))
+    for command in data.get("finish_run") or []:
+        try:
+            parse_command(command)
+        except ValueError as exc:
+            problems.append(f"finish_run 命令解析失败 {command!r}: {exc}")
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--job", required=True)
@@ -161,10 +192,6 @@ def main() -> int:
     on_fail = list(data.get("on_fail") or [worker])
     on_pass = list(data.get("on_pass") or [lead])
 
-    if str(data.get("status") or "").lower() not in ("pass", "ok", ""):
-        notify_many(clerk, job, "blocked", on_fail, f"handshake status={data.get('status')}; not starting")
-        return 1
-
     # Abort sentinel: someone cancelled this job before the clerk started.
     abort = jobs_dir() / f"{job}.abort"
     if abort.exists():
@@ -174,23 +201,14 @@ def main() -> int:
         return 3
 
     # Validate the handshake before doing any work; a malformed package bounces immediately.
+    problems = validate_handshake(data, job)
+    if problems:
+        notify_many(clerk, job, "blocked", on_fail,
+                    "握手校验未过：\n" + "\n".join(f"- {p}" for p in problems)
+                    + "\n修好后更新回执再 handoff。")
+        return 2
     extra_env = data.get("env") or {}
-    if not isinstance(extra_env, dict):
-        notify_many(clerk, job, "blocked", on_fail, "handshake env 必须是对象（{\"NAME\": \"value\"}）")
-        return 2
-    try:
-        timeout_sec = float(data.get("timeout_sec", DEFAULT_TIMEOUT_SEC))
-        if timeout_sec <= 0:
-            raise ValueError("non-positive")
-    except (TypeError, ValueError):
-        notify_many(clerk, job, "blocked", on_fail, f"handshake timeout_sec 非法：{data.get('timeout_sec')!r}")
-        return 2
-    for rel in data.get("temp_cleanup") or []:
-        try:
-            safe_cleanup(str(rel))
-        except SystemExit as exc:
-            notify_many(clerk, job, "blocked", on_fail, f"temp_cleanup 路径越界：{exc}")
-            return 2
+    timeout_sec = float(data.get("timeout_sec", DEFAULT_TIMEOUT_SEC))
 
     run_log = []
     for command in data.get("finish_run") or []:

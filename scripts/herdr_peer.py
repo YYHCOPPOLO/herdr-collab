@@ -11,6 +11,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from herdr_finish import validate_handshake
+
 SKILL_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_LEAD = "main-grok"
 DEFAULT_CLERK = "git-clerk"
@@ -219,6 +221,12 @@ def cmd_handoff(args: argparse.Namespace) -> int:
     done = handshake_path(args.job)
     if not done.is_file():
         raise SystemExit(f"missing handshake {done}")
+    problems = validate_handshake(json.loads(done.read_text(encoding="utf-8")), args.job)
+    if problems:
+        print("handshake 校验未过，先修回执再 handoff（clerk 没被打扰）：")
+        for problem in problems:
+            print("-", problem)
+        return 2
     clerk = resolve_target(args.to, args.pane)
     cmd = finish_cmd(args.job, args.source)
     if is_coding_agent(clerk):
@@ -234,6 +242,34 @@ def cmd_handoff(args: argparse.Namespace) -> int:
     print(json.dumps({
         "from": args.source, "to": clerk, "job": args.job,
         "result": result.get("result", result),
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    path = handshake_path(args.job)
+    if path.exists() and not args.force:
+        raise SystemExit(f"{path} already exists; pass --force to overwrite")
+    skeleton = {
+        "job": args.job,
+        "status": "pass",
+        "from": args.source,
+        "lead": args.lead,
+        "clerk": args.clerk,
+        "on_pass": [args.lead],
+        "on_fail": [args.source] if args.source else [],
+        "files": [],
+        "finish_run": [],
+        "commit_message": "",
+        "issue": None,
+        "issue_comment": "",
+        "push": False,
+        "temp_cleanup": [],
+    }
+    path.write_text(json.dumps(skeleton, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({
+        "handshake": str(path),
+        "hint": "fill files/finish_run/commit_message, then handoff",
     }, ensure_ascii=False, indent=2))
     return 0
 
@@ -324,11 +360,18 @@ def main() -> int:
     status.add_argument("--job")
     abort = sub.add_parser("abort")
     abort.add_argument("--job", required=True)
+    init = sub.add_parser("init")
+    init.add_argument("--job", required=True)
+    init.add_argument("--from", dest="source", default="")
+    init.add_argument("--lead", default=DEFAULT_LEAD)
+    init.add_argument("--clerk", default=DEFAULT_CLERK)
+    init.add_argument("--force", action="store_true")
     args = parser.parse_args()
     fn = {
         "list": cmd_list, "peers": cmd_peers, "name": cmd_name, "tell": cmd_tell,
         "send": cmd_send, "run": cmd_run, "handoff": cmd_handoff,
         "notify": cmd_notify, "status": cmd_status, "abort": cmd_abort,
+        "init": cmd_init,
     }[args.cmd]
     if args.cmd == "run":
         if args.command and args.command[0] == "--":

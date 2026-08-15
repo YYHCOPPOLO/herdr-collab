@@ -3,6 +3,8 @@
 Run from anywhere:  py -m unittest discover -s tests   (Windows)
                     python3 -m unittest discover -s tests
 """
+import argparse
+import json
 import os
 import sys
 import tempfile
@@ -80,6 +82,72 @@ class RecordIsCodingTest(unittest.TestCase):
         self.assertFalse(hp.record_is_coding({}))
         self.assertFalse(hp.record_is_coding({"agent": None}))
         self.assertFalse(hp.record_is_coding({"agent": ""}))
+
+
+class ValidateHandshakeTest(unittest.TestCase):
+    def base(self):
+        return {"job": "t", "status": "pass", "from": "w",
+                "files": [], "finish_run": [], "temp_cleanup": []}
+
+    def test_ok(self):
+        self.assertEqual(hf.validate_handshake(self.base(), "t"), [])
+
+    def test_job_mismatch(self):
+        self.assertTrue(hf.validate_handshake(self.base(), "other"))
+
+    def test_from_required(self):
+        data = self.base()
+        data["from"] = ""
+        self.assertTrue(any("from" in p for p in hf.validate_handshake(data, "t")))
+
+    def test_bad_status(self):
+        data = self.base()
+        data["status"] = "wip"
+        self.assertTrue(hf.validate_handshake(data, "t"))
+
+    def test_env_must_be_dict(self):
+        data = self.base()
+        data["env"] = ["A=1"]
+        self.assertTrue(hf.validate_handshake(data, "t"))
+
+    def test_bad_timeout(self):
+        data = self.base()
+        data["timeout_sec"] = 0
+        self.assertTrue(hf.validate_handshake(data, "t"))
+
+    def test_cleanup_escape(self):
+        data = self.base()
+        data["temp_cleanup"] = ["../evil.txt"]
+        self.assertTrue(hf.validate_handshake(data, "t"))
+
+    def test_unparseable_command(self):
+        data = self.base()
+        data["finish_run"] = ['py -c "oops']
+        self.assertTrue(hf.validate_handshake(data, "t"))
+
+
+class InitTest(unittest.TestCase):
+    JOBS = Path(os.environ["HERDR_JOBS"])
+
+    def ns(self, **kw):
+        base = dict(job="t-init", source="w1", lead="main-grok", clerk="git-clerk", force=False)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    def tearDown(self):
+        (self.JOBS / "t-init.done.json").unlink(missing_ok=True)
+
+    def test_skeleton_validates(self):
+        hp.cmd_init(self.ns())
+        data = json.loads((self.JOBS / "t-init.done.json").read_text(encoding="utf-8"))
+        self.assertEqual(data["on_fail"], ["w1"])
+        self.assertEqual(hf.validate_handshake(data, "t-init"), [])
+
+    def test_no_overwrite_without_force(self):
+        hp.cmd_init(self.ns())
+        with self.assertRaises(SystemExit):
+            hp.cmd_init(self.ns())
+        hp.cmd_init(self.ns(force=True))
 
 
 if __name__ == "__main__":
