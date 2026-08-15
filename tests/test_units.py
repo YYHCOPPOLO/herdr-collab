@@ -223,5 +223,20 @@ class BounceTest(unittest.TestCase):
         self.assertEqual(hf.validate_handshake(data, "t"), [])
 
 
+class SpawnNameTest(unittest.TestCase):
+    def ns(self, name):
+        return argparse.Namespace(name=name, kind="", pane="", cwd="", timeout=0)
+
+    def test_bad_names_rejected_before_touching_herdr(self):
+        for bad in ("1x", "Bad", "-x", "x" * 40, "has space", ""):
+            with self.assertRaises(SystemExit):
+                hp.cmd_spawn(self.ns(bad))
+
+    def test_find_pane_id_shapes(self):
+        self.assertEqual(hp.find_pane_id({"result": {"pane": "w9:p2"}}), "w9:p2")
+        self.assertEqual(hp.find_pane_id({"result": {"split": {"pane_id": "w1:p5"}}}), "w1:p5")
+        self.assertEqual(hp.find_pane_id({"result": {}}), "")
+
+
 if __name__ == "__main__":
     unittest.main()

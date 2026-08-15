@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -319,6 +320,56 @@ def cmd_abort(args: argparse.Namespace) -> int:
     return 0
 
 
+def find_pane_id(payload) -> str:
+    """Dig the new pane id (wN:pM) out of a pane split response."""
+    if isinstance(payload, dict):
+        for key in ("pane", "pane_id", "root_pane", "id"):
+            value = payload.get(key)
+            if isinstance(value, str) and re.fullmatch(r"w\d+:p\d+", value):
+                return value
+        for value in payload.values():
+            found = find_pane_id(value)
+            if found:
+                return found
+    elif isinstance(payload, list):
+        for item in payload:
+            found = find_pane_id(item)
+            if found:
+                return found
+    return ""
+
+
+def cmd_spawn(args: argparse.Namespace) -> int:
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", args.name):
+        raise SystemExit(f"invalid name {args.name!r}: must match [a-z][a-z0-9_-]{{0,31}}")
+    split_args = ["pane", "split"]
+    if args.pane:
+        split_args += ["--pane", args.pane]
+    else:
+        split_args.append("--current")
+    split_args += ["--direction", "right", "--no-focus"]
+    if args.cwd:
+        split_args += ["--cwd", args.cwd]
+    result = herdr_json(split_args)
+    pane_id = find_pane_id(result)
+    if not pane_id:
+        raise SystemExit(f"pane split ok but no pane id in response: {json.dumps(result)[:400]}")
+    if args.kind:
+        start_args = ["agent", "start", args.name, "--kind", args.kind, "--pane", pane_id]
+        if args.timeout:
+            start_args += ["--timeout", str(args.timeout)]
+        proc = herdr(start_args)
+        if proc.returncode != 0:
+            raise SystemExit(
+                f"agent start failed in new pane {pane_id} (pane kept for inspection): "
+                f"{proc.stderr.strip() or proc.stdout.strip()}")
+    else:
+        herdr_json(["pane", "rename", pane_id, args.name])
+    print(json.dumps({"name": args.name, "pane": pane_id, "kind": args.kind or "shell"},
+                     ensure_ascii=False))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="herdr peer messaging")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -366,12 +417,18 @@ def main() -> int:
     init.add_argument("--lead", default=DEFAULT_LEAD)
     init.add_argument("--clerk", default=DEFAULT_CLERK)
     init.add_argument("--force", action="store_true")
+    spawn = sub.add_parser("spawn")
+    spawn.add_argument("--name", required=True)
+    spawn.add_argument("--kind", default="")
+    spawn.add_argument("--pane", default="")
+    spawn.add_argument("--cwd", default="")
+    spawn.add_argument("--timeout", type=int, default=0)
     args = parser.parse_args()
     fn = {
         "list": cmd_list, "peers": cmd_peers, "name": cmd_name, "tell": cmd_tell,
         "send": cmd_send, "run": cmd_run, "handoff": cmd_handoff,
         "notify": cmd_notify, "status": cmd_status, "abort": cmd_abort,
-        "init": cmd_init,
+        "init": cmd_init, "spawn": cmd_spawn,
     }[args.cmd]
     if args.cmd == "run":
         if args.command and args.command[0] == "--":
