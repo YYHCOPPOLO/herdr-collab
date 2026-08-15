@@ -19,6 +19,9 @@ The executor pane that runs a finish package exactly as written and stops on the
 **Peer**:
 Any named pane in the herdr instance. Names are the only addresses; sidebar labels are not.
 
+**Spawn**:
+Opening a new peer from the lead: `pane split` + `agent start` (or a bare shell) under a given name, all herdr-native. The opposite move is `name`, adopting an existing pane.
+
 **Job**:
 One ticket's unit of orchestration, keyed by a job id. All its files live under `.herdr/jobs/`.
 
@@ -35,7 +38,10 @@ The clerk-side execution of a handshake: `finish_run`, commit, optional issue cl
 The clerk's only failure move: notify `on_fail` with command, exit code, and log path, then stop. Never diagnose. 别名：退回。
 
 **Escalation**:
-After `max_bounces` bounces of the same job, the lead is added to the failure notify — a human should step in. 升级。_Avoid_: blind retry（盲重试，clerk 原样重跑，明确否决）.
+After `max_bounces` (default 3) bounces of the same job, the lead is added to the failure notify — a human should step in. 升级。_Avoid_: blind retry（盲重试，clerk 原样重跑，明确否决）.
+
+**Soft command**:
+A `finish_run` entry marked `"soft": true`: its failure (non-zero exit or timeout) is logged and reported in the success notify, but never stops the run.
 
 **Abort sentinel**:
 A `.herdr/jobs/<id>.abort` file that cancels a job before the clerk starts it. 取消哨兵。

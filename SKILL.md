@@ -29,7 +29,7 @@ The herdr binary is resolved from `$HERDR`, `$HERDR_HOME`, or PATH. Job files: `
 | Worker | `sub-grok-N` | Edit files; run short local commands | git / close issues / wipe jobs; wait on clerk |
 | Clerk | `git-clerk` | Run `finish_run`, commit listed files, optional issue close, delete listed job temps | Read tests, edit product code, retry "to see", invent steps |
 
-Any **named** pane can talk to any other. New pane: `herdr_peer.py name --pane w9:p1 --as sub-grok-2`.
+Any **named** pane can talk to any other. New pane: `herdr_peer.py spawn --name sub-grok-2 --kind grok` (splits a pane and starts the agent, all herdr-native); to adopt an existing pane instead: `herdr_peer.py name --pane w9:p1 --as sub-grok-2`.
 
 ## Hard rules
 
@@ -39,11 +39,14 @@ Any **named** pane can talk to any other. New pane: `herdr_peer.py name --pane w
 4. **Short commands stay with the worker** (compile, one test). **Once-per-ticket commands go in `finish_run`** (full suite, e2e, launch app).
 5. **Clerk is an executor.** `finish_run` failure → notify `from` / `on_fail` (the worker) with command, exit code, and `.herdr/jobs/<job>.run.json`. Stop. Do not diagnose.
 6. Lead only wakes on `on_pass` or a human decision. Do not re-run the finish package after a success notify.
+7. **Escalation is not retry.** Past `max_bounces` the lead joins the blocked notify. The clerk never re-runs a failed command unchanged.
 
 ## Talk
 
 ```
 py <skill_dir>/scripts/herdr_peer.py peers
+py <skill_dir>/scripts/herdr_peer.py spawn --name sub-grok-2 --kind grok
+py <skill_dir>/scripts/herdr_peer.py init --job 12 --from sub-grok-1
 py <skill_dir>/scripts/herdr_peer.py tell --from main-grok --to sub-grok-1 --to git-clerk --message "..."
 py <skill_dir>/scripts/herdr_peer.py notify --from git-clerk --to sub-grok-1 --job 12 --phase blocked --message "exit 1, see .herdr/jobs/12.run.json"
 ```
@@ -78,7 +81,7 @@ Where the spec comes from — the skill is workflow-agnostic, it only requires t
 
 Either way: reference artifacts by path, redact secrets.
 
-Worker last steps: write `.herdr/jobs/<id>.done.json`, then
+Worker last steps: write `.herdr/jobs/<id>.done.json` (`init --job <id>` scaffolds it; `handoff` validates it before the clerk is involved), then
 
 ```
 py <skill_dir>/scripts/herdr_peer.py handoff --from <worker> --to git-clerk --job <id>
@@ -100,6 +103,7 @@ py <skill_dir>/scripts/herdr_peer.py handoff --from <worker> --to git-clerk --jo
   "files": ["src/foo.ts"],
   "finish_run": ["npm test"],
   "timeout_sec": 180,
+  "max_bounces": 3,
   "env": {"CI": "1"},
   "commit_message": "feat: ...",
   "issue": 12,
@@ -109,11 +113,19 @@ py <skill_dir>/scripts/herdr_peer.py handoff --from <worker> --to git-clerk --jo
 }
 ```
 
-Defaults: `on_fail=[from]`, `on_pass=[lead]`, `timeout_sec=180` per `finish_run` command — long suites must set it explicitly. String commands split with POSIX quoting rules (`shlex`); use the array form for paths or tricky args. `env` is merged over the clerk's environment for `finish_run` only. Reruns are idempotent: an already-committed tree skips `git commit`, so retrying after a GitHub failure is safe. Clerk runs `herdr_finish.py` (same `scripts/`). `temp_cleanup` must stay under the repo (prefer `.herdr/` or project `temp/`). Executed handshakes and run logs move to `.herdr/jobs/archive/`.
+Defaults: `on_fail=[from]`, `on_pass=[lead]`, `timeout_sec=180` per `finish_run` command — long suites must set it explicitly. String commands split with POSIX quoting rules (`shlex`); use the array form for paths or tricky args; an entry may also be an object `{"cmd": ..., "soft": true, "timeout_sec": 300, "env": {...}}` — `soft` failures are logged and never stop the run, and the success notify reports their count. `env` is merged over the clerk's environment for `finish_run` only. A failure bounces to `on_fail`; past `max_bounces` (default 3) the blocked notify also goes to `on_pass`. Reruns are idempotent: an already-committed tree skips `git commit`, so retrying after a GitHub failure is safe. Clerk runs `herdr_finish.py` (same `scripts/`); inside herdr it reports running/blocked/done to its pane's sidebar. `temp_cleanup` must stay under the repo (prefer `.herdr/` or project `temp/`). Executed handshakes and run logs move to `.herdr/jobs/archive/`.
 
 ## Cancel a job
 
 `herdr_peer.py abort --job <id>` writes the `.herdr/jobs/<id>.abort` sentinel. The clerk checks it before starting: if present, nothing runs, the handshake is dropped, and `on_pass` gets an `other` notify.
+
+## Chain tickets
+
+A dependency "B after A" is a message chain, not a queue: A's `on_pass` is the lead; when the success notify arrives, the lead dispatches B (`/new`, then `send`). No scheduler — the lead decides whether B still makes sense given A's outcome.
+
+## More than one clerk
+
+Any named pane can be a clerk: spawn or rename another one (`git-clerk-2`) and `handoff --to git-clerk-2`. Job files are keyed by job id, so parallel clerks do not collide.
 
 ## On a notify to this lead
 
