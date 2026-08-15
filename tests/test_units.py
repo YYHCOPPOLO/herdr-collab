@@ -238,5 +238,11 @@ class SpawnNameTest(unittest.TestCase):
         self.assertEqual(hp.find_pane_id({"result": {}}), "")
 
 
+class ReportStateTest(unittest.TestCase):
+    def test_no_pane_env_is_noop(self):
+        os.environ.pop("HERDR_PANE_ID", None)
+        hf.report_state("running t")  # must not raise without a herdr pane
+
+
 if __name__ == "__main__":
     unittest.main()

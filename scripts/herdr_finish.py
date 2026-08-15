@@ -62,6 +62,22 @@ def notify_many(source: str, job: str, phase: str, targets: list[str], message: 
             print(proc.stderr, file=sys.stderr)
 
 
+def report_state(text: str) -> None:
+    """Best-effort sidebar metadata for the clerk pane; never breaks the run."""
+    pane = os.environ.get("HERDR_PANE_ID")
+    if not pane:
+        return
+    try:
+        from herdr_peer import herdr_bin
+        subprocess.run(
+            [str(herdr_bin()), "pane", "report-metadata", pane,
+             "--source", "herdr-collab", "--state-label", f"job={text}"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"report-metadata failed: {exc}", file=sys.stderr)
+
+
 def github_repo() -> str | None:
     proc = run(["git", "remote", "get-url", "origin"])
     if proc.returncode != 0:
@@ -202,6 +218,7 @@ def bounce(job: str, clerk: str, run_log: list, on_fail: list, on_pass: list,
     message += f"日志：{log.as_posix()}。"
     if escalated:
         message += f"\n退回次数超限（{bounces}/{max_bounces}），lead 请介入。"
+    report_state(f"blocked {job}")
     notify_many(clerk, job, "blocked", targets, message)
 
 
@@ -277,6 +294,7 @@ def main() -> int:
     extra_env = data.get("env") or {}
     timeout_sec = float(data.get("timeout_sec", DEFAULT_TIMEOUT_SEC))
     max_bounces = data.get("max_bounces", DEFAULT_MAX_BOUNCES)
+    report_state(f"running {job}")
 
     run_log = []
     for command in data.get("finish_run") or []:
@@ -338,6 +356,7 @@ def main() -> int:
     if files and data.get("commit_message"):
         add = run(["git", "add", "--", *files])
         if add.returncode != 0:
+            report_state(f"blocked {job}")
             notify_many(clerk, job, "blocked", on_fail, add.stderr)
             return add.returncode
         staged = run(["git", "diff", "--cached", "--quiet"])
@@ -348,19 +367,23 @@ def main() -> int:
         elif staged.returncode == 1:
             committed = run(["git", "commit", "-m", str(data["commit_message"])])
             if committed.returncode != 0:
+                report_state(f"blocked {job}")
                 notify_many(clerk, job, "blocked", on_fail, committed.stdout + committed.stderr)
                 return committed.returncode
             commit = run(["git", "rev-parse", "--short", "HEAD"]).stdout.strip()
         else:
+            report_state(f"blocked {job}")
             notify_many(clerk, job, "blocked", on_fail, f"git diff --cached exit={staged.returncode}: {staged.stderr}")
             return staged.returncode
         if data.get("push"):
             try:
                 pushed = run(["git", "push"], timeout=GIT_PUSH_TIMEOUT_SEC)
             except subprocess.TimeoutExpired:
+                report_state(f"blocked {job}")
                 notify_many(clerk, job, "blocked", on_fail, f"git push 超时（{GIT_PUSH_TIMEOUT_SEC}s）")
                 return 124
             if pushed.returncode != 0:
+                report_state(f"blocked {job}")
                 notify_many(clerk, job, "blocked", on_fail, pushed.stderr)
                 return pushed.returncode
 
@@ -395,6 +418,7 @@ def main() -> int:
     for artifact in (handshake, jobs_dir() / f"{job}.run.json"):
         if artifact.exists():
             artifact.replace(archive / artifact.name)
+    report_state(f"done {job}")
     return 0
 
 
