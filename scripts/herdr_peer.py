@@ -143,10 +143,6 @@ def listed_agents() -> list[dict]:
     return list(result.get("agents") or [])
 
 
-def display_name(rec: dict) -> str:
-    return rec.get("name") or rec.get("pane_id") or "?"
-
-
 def py_cmd() -> str:
     return "py" if os.name == "nt" else "python3"
 
@@ -156,15 +152,45 @@ def finish_cmd(job: str, worker: str) -> str:
     return f"{py_cmd()} {script} --job {job} --worker {worker}"
 
 
+def listed_panes() -> list[dict]:
+    result = herdr_json(["pane", "list"]).get("result") or {}
+    return list(result.get("panes") or [])
+
+
+def workspace_labels() -> dict:
+    result = herdr_json(["workspace", "list"]).get("result") or {}
+    return {str(ws.get("workspace_id") or ""): str(ws.get("label") or "")
+            for ws in result.get("workspaces") or []}
+
+
+def peer_rows(agents: list[dict], panes: list[dict], labels: dict) -> list[tuple]:
+    """Merge the agent registry and the pane list: named agents show their name,
+    bare shells show their pane id, workspace labels are the persistent anchor
+    for re-naming after restarts (agent names expire with the agent process)."""
+    by_pane = {str(a.get("pane_id") or ""): a for a in agents}
+    rows = []
+    for pane in sorted(panes, key=lambda p: str(p.get("pane_id") or "")):
+        pid = str(pane.get("pane_id") or "")
+        agent = by_pane.pop(pid, None) or {}
+        kind = agent.get("agent") or pane.get("agent") or ""
+        rows.append((
+            str(agent.get("name") or pid),
+            str(kind or "shell"),
+            pid,
+            labels.get(str(pane.get("workspace_id") or ""), ""),
+            str(agent.get("agent_status") or pane.get("agent_status") or ""),
+        ))
+    for pid, agent in sorted(by_pane.items()):
+        if pid:
+            rows.append((str(agent.get("name") or pid), str(agent.get("agent") or ""),
+                         pid, "", str(agent.get("agent_status") or "")))
+    return rows
+
+
 def cmd_peers(_args: argparse.Namespace) -> int:
-    print("name\tkind\tpane\tstatus")
-    for rec in listed_agents():
-        print("\t".join([
-            display_name(rec),
-            str(rec.get("agent") or ""),
-            str(rec.get("pane_id") or ""),
-            str(rec.get("agent_status") or ""),
-        ]))
+    print("name\tkind\tpane\tworkspace\tstatus")
+    for row in peer_rows(listed_agents(), listed_panes(), workspace_labels()):
+        print("\t".join(row))
     return 0
 
 

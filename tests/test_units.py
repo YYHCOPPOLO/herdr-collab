@@ -248,6 +248,24 @@ class PaneIdAddressTest(unittest.TestCase):
         self.assertEqual(hp.pane_id_of("w9:p3"), "w9:p3")
 
 
+class PeerRowsTest(unittest.TestCase):
+    def test_merge_agents_and_shells(self):
+        agents = [{"name": "main-grok", "agent": "grok", "pane_id": "w2:p1", "agent_status": "idle"}]
+        panes = [
+            {"pane_id": "w2:p1", "agent": "grok", "agent_status": "idle", "workspace_id": "w2"},
+            {"pane_id": "w8:p1", "agent_status": "unknown", "workspace_id": "w8"},
+        ]
+        labels = {"w2": "rouge-like-demo", "w8": "git-clerk"}
+        rows = hp.peer_rows(agents, panes, labels)
+        self.assertEqual(rows[0], ("main-grok", "grok", "w2:p1", "rouge-like-demo", "idle"))
+        self.assertEqual(rows[1], ("w8:p1", "shell", "w8:p1", "git-clerk", "unknown"))
+
+    def test_agent_without_pane_still_listed(self):
+        rows = hp.peer_rows(
+            [{"name": "x", "agent": "grok", "pane_id": "w9:p9", "agent_status": "idle"}], [], {})
+        self.assertEqual(rows, [("x", "grok", "w9:p9", "", "idle")])
+
+
 class ReportStateTest(unittest.TestCase):
     def test_no_pane_env_is_noop(self):
         os.environ.pop("HERDR_PANE_ID", None)

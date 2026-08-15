@@ -5,7 +5,8 @@ description: >
   agents, dispatch a ticket to a worker, hand a finish package to an executor
   clerk, bounce test failures back to the worker. Use when the user mentions
   herdr, git-clerk, sub-grok, main-grok, handoff, 多窗口, 派工, 收工包, or runs
-  /herdr-collab.
+  /herdr-collab — and whenever herdr is running with multiple panes and a task
+  could be delegated to a worker: dispatch it, do not do it yourself.
 ---
 
 # herdr-collab
@@ -55,7 +56,7 @@ py <skill_dir>/scripts/herdr_peer.py notify --from git-clerk --to sub-grok-1 --j
 
 ## Dispatch a ticket
 
-1. `peers`. Rename this lead pane if needed: `name --pane <lead-pane> --as main-grok`.
+1. `peers` — the full pane view (agents **and** bare shells, with workspace labels). Agent names expire when the agent exits; workspace labels persist, so after any restart re-`name` workers/clerk by their labels. Rename this lead pane if needed: `name --pane <lead-pane> --as main-grok`.
 2. Write a **self-contained** brief (worker has no lead history): scope, do-not, spec (inline or by reference), files they may touch, handshake path, `handoff` command.
 3. `tell`/`send` only `/new` to the worker. When idle, `send --target <worker> --prompt-file <brief> --job <id>`.
 4. Stop. Do not watch them.
