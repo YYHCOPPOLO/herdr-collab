@@ -29,7 +29,7 @@ The herdr binary is resolved from `$HERDR`, `$HERDR_HOME`, or PATH. Job files: `
 | Worker | `sub-grok-N` | Edit files; run short local commands | git / close issues / wipe jobs; wait on clerk |
 | Clerk | `git-clerk` | Run `finish_run`, commit listed files, optional issue close, delete listed job temps | Read tests, edit product code, retry "to see", invent steps |
 
-Any **named** pane can talk to any other. New pane: `herdr_peer.py spawn --name sub-grok-2 --kind grok` (splits a pane and starts the agent, all herdr-native); to adopt an existing pane instead: `herdr_peer.py name --pane w9:p1 --as sub-grok-2`.
+Any **named** pane can talk to any other. Names live in herdr's agent registry and expire when the agent exits; a bare shell has no name — address it by pane id (`wN:pM`). New agent pane: `herdr_peer.py spawn --name sub-grok-2 --kind grok` (splits a pane and starts the agent, all herdr-native); to adopt an existing agent pane instead: `herdr_peer.py name --pane w9:p1 --as sub-grok-2`.
 
 ## Hard rules
 
@@ -51,7 +51,7 @@ py <skill_dir>/scripts/herdr_peer.py tell --from main-grok --to sub-grok-1 --to 
 py <skill_dir>/scripts/herdr_peer.py notify --from git-clerk --to sub-grok-1 --job 12 --phase blocked --message "exit 1, see .herdr/jobs/12.run.json"
 ```
 
-`--to` repeats. Coding agents get a prompt; bare shells get `.herdr/jobs/inbox-<name>.txt` (appended, timestamped — earlier messages are kept).
+`--to` repeats. Coding agents get a prompt; bare shells get `.herdr/jobs/inbox-<name>.txt` (appended, timestamped — earlier messages are kept; for pane-id targets `:` becomes `_`, e.g. `inbox-w2_p1.txt`).
 
 ## Dispatch a ticket
 

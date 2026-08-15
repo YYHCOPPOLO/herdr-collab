@@ -69,7 +69,18 @@ def herdr_json(args: list[str]) -> dict:
     return payload if isinstance(payload, dict) else {"result": payload}
 
 
+PANE_ID_RE = re.compile(r"w\d+:p\d+")
+
+
+def looks_like_pane_id(target: str) -> bool:
+    return bool(PANE_ID_RE.fullmatch(target))
+
+
 def resolve_target(target: str, pane: str | None) -> str:
+    if looks_like_pane_id(target):
+        # pane ids address any pane directly — the only way to reach a bare shell.
+        herdr_json(["pane", "get", target])
+        return target
     got = herdr(["agent", "get", target])
     if got.returncode == 0:
         return target
@@ -80,6 +91,13 @@ def resolve_target(target: str, pane: str | None) -> str:
 
 
 def agent_record(target: str) -> dict:
+    if looks_like_pane_id(target):
+        got = herdr(["agent", "get", target])
+        if got.returncode != 0:
+            return {}  # bare shell pane: no agent record exists
+        result = json.loads((got.stdout or "").strip() or "{}").get("result") or {}
+        agent = result.get("agent") if isinstance(result.get("agent"), dict) else result
+        return agent or {}
     result = herdr_json(["agent", "get", target]).get("result") or {}
     agent = result.get("agent") if isinstance(result.get("agent"), dict) else result
     return agent or {}
@@ -100,6 +118,8 @@ def is_coding_agent(target: str) -> bool:
 
 
 def pane_id_of(target: str) -> str:
+    if looks_like_pane_id(target):
+        return target
     pane = agent_record(target).get("pane_id")
     if not pane:
         raise SystemExit(f"no pane_id for {target}")
@@ -109,7 +129,9 @@ def pane_id_of(target: str) -> str:
 def deliver(target: str, text: str) -> dict:
     if is_coding_agent(target):
         return herdr_json(["agent", "prompt", target, text])
-    inbox = jobs_dir() / f"inbox-{target}.txt"
+    # ":" is the ADS separator on NTFS — sanitize pane ids for the filename.
+    safe_name = target.replace(":", "_")
+    inbox = jobs_dir() / f"inbox-{safe_name}.txt"
     stamp = datetime.now().isoformat(timespec="seconds")
     with inbox.open("a", encoding="utf-8") as fh:
         fh.write(f"=== {stamp} ===\n{text}\n\n")
@@ -155,7 +177,11 @@ def cmd_list(_args: argparse.Namespace) -> int:
 
 
 def cmd_name(args: argparse.Namespace) -> int:
-    herdr_json(["agent", "rename", args.pane, args.as_name])
+    proc = herdr(["agent", "rename", args.pane, args.as_name])
+    if proc.returncode != 0:
+        raise SystemExit(
+            f"naming failed: {proc.stderr.strip() or proc.stdout.strip()}\n"
+            f"Bare shells cannot be named in the agent registry — address them by pane id ({args.pane}) directly.")
     print(json.dumps({"name": args.as_name, "pane": args.pane}, ensure_ascii=False))
     return 0
 
@@ -364,8 +390,15 @@ def cmd_spawn(args: argparse.Namespace) -> int:
                 f"agent start failed in new pane {pane_id} (pane kept for inspection): "
                 f"{proc.stderr.strip() or proc.stdout.strip()}")
     else:
+        # Bare shells cannot join the agent registry; the pane id is the address.
+        # pane rename only sets the cosmetic sidebar label.
         herdr_json(["pane", "rename", pane_id, args.name])
-    print(json.dumps({"name": args.name, "pane": pane_id, "kind": args.kind or "shell"},
+        print(json.dumps({
+            "name": args.name, "pane": pane_id, "kind": "shell", "address": pane_id,
+            "note": "shell panes are addressed by pane id, not by name",
+        }, ensure_ascii=False))
+        return 0
+    print(json.dumps({"name": args.name, "pane": pane_id, "kind": args.kind},
                      ensure_ascii=False))
     return 0
 

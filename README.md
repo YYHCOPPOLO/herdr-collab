@@ -80,7 +80,7 @@ py <skill_dir>/scripts/herdr_peer.py abort --job 12
 ```
 
 Coding agents receive a prompt; bare shells get `.herdr/jobs/inbox-<name>.txt`
-(appended, timestamped).
+(appended, timestamped; pane-id targets are sanitized, e.g. `inbox-w2_p1.txt`).
 
 ## How a ticket flows
 

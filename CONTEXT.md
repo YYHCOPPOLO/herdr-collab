@@ -17,7 +17,7 @@ The pane that edits files, runs short local commands, and writes the handshake w
 The executor pane that runs a finish package exactly as written and stops on the first failure. Convention name: `git-clerk`. 别名：执行。_Avoid_: auto-fixer, reviewer.
 
 **Peer**:
-Any named pane in the herdr instance. Names are the only addresses; sidebar labels are not.
+Any addressable pane in the herdr instance. Agent panes are addressed by name (names expire when the agent exits); bare shells are addressed by pane id (`wN:pM`). Sidebar labels are not addresses.
 
 **Spawn**:
 Opening a new peer from the lead: `pane split` + `agent start` (or a bare shell) under a given name, all herdr-native. The opposite move is `name`, adopting an existing pane.

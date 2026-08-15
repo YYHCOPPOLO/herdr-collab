@@ -238,6 +238,16 @@ class SpawnNameTest(unittest.TestCase):
         self.assertEqual(hp.find_pane_id({"result": {}}), "")
 
 
+class PaneIdAddressTest(unittest.TestCase):
+    def test_looks_like_pane_id(self):
+        self.assertTrue(hp.looks_like_pane_id("w2:p1"))
+        self.assertFalse(hp.looks_like_pane_id("sub-grok-1"))
+        self.assertFalse(hp.looks_like_pane_id("w2p1"))
+
+    def test_pane_id_of_passthrough(self):
+        self.assertEqual(hp.pane_id_of("w9:p3"), "w9:p3")
+
+
 class ReportStateTest(unittest.TestCase):
     def test_no_pane_env_is_noop(self):
         os.environ.pop("HERDR_PANE_ID", None)
