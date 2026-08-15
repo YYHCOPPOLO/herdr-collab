@@ -53,7 +53,7 @@ py <skill_dir>/scripts/herdr_peer.py notify --from git-clerk --to sub-grok-1 --j
 ## Dispatch a ticket
 
 1. `peers`. Rename this lead pane if needed: `name --pane <lead-pane> --as main-grok`.
-2. Write a **self-contained** brief (worker has no lead history): scope, do-not, spec/issue, files they may touch, handshake path, `handoff` command.
+2. Write a **self-contained** brief (worker has no lead history): scope, do-not, spec (inline or by reference), files they may touch, handshake path, `handoff` command.
 3. `tell`/`send` only `/new` to the worker. When idle, `send --target <worker> --prompt-file <brief> --job <id>`.
 4. Stop. Do not watch them.
 
@@ -63,11 +63,20 @@ Brief skeleton (copy and fill):
 # Job <id>: <one-line goal>
 Scope: <files/dirs the worker may touch>
 Do not: <out-of-scope actions>
-Spec/issue: <link or #id>
+Spec: <path/URL/#id — or "this brief is the spec">
 Done when: <observable acceptance>
+Skills: <skills the worker should invoke, if any>
 finish_run: [<once-per-ticket commands>]
 commit_message: <message>
 ```
+
+Where the spec comes from — the skill is workflow-agnostic, it only requires the result to be self-contained:
+
+- **The project has tickets/specs** (issues, plan docs): reference them by path/URL. Never paste contents.
+- **No ticket workflow**: the brief itself carries the distilled spec — goal, constraints, acceptance. Self-contained means exactly that.
+- **Continuation dispatch** (hand over half-done exploration/debugging): if the host agent has a handoff/compaction skill, use it to write a continuation doc, then reference its path under `Spec`. An authoring aid, never a dependency.
+
+Either way: reference artifacts by path, redact secrets.
 
 Worker last steps: write `.herdr/jobs/<id>.done.json`, then
 
