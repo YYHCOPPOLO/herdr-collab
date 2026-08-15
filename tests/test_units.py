@@ -194,5 +194,34 @@ class ParseEntryTest(unittest.TestCase):
         self.assertTrue(hf.validate_handshake(data, "t"))
 
 
+class BounceTest(unittest.TestCase):
+    def test_targets_normal_below_max(self):
+        targets, escalated = hf.bounce_targets(["w"], ["lead"], 3, 3)
+        self.assertFalse(escalated)
+        self.assertEqual(targets, ["w"])
+
+    def test_targets_escalate_past_max(self):
+        targets, escalated = hf.bounce_targets(["w"], ["lead"], 4, 3)
+        self.assertTrue(escalated)
+        self.assertEqual(targets, ["w", "lead"])
+
+    def test_targets_dedup(self):
+        targets, _ = hf.bounce_targets(["w", "lead"], ["lead"], 5, 3)
+        self.assertEqual(targets, ["w", "lead"])
+
+    def test_bounce_count_reads_run_log(self):
+        log = Path(os.environ["HERDR_JOBS"]) / "t-bounce.run.json"
+        log.write_text(json.dumps({"bounces": 2}), encoding="utf-8")
+        self.assertEqual(hf.bounce_count(log), 2)
+        log.unlink()
+        self.assertEqual(hf.bounce_count(log), 0)
+
+    def test_validate_max_bounces(self):
+        data = {"job": "t", "status": "pass", "from": "w", "max_bounces": 0}
+        self.assertTrue(hf.validate_handshake(data, "t"))
+        data["max_bounces"] = 3
+        self.assertEqual(hf.validate_handshake(data, "t"), [])
+
+
 if __name__ == "__main__":
     unittest.main()
